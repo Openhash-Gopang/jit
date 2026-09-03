@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0">
+<title>K-JIT — 조달 계획 요청</title>
+<meta name="description" content="K-JIT AI와 대화해 물자·인원·서비스 조달 계획을 요청합니다.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2064%2064%22%3E%3Crect%20width%3D%2264%22%20height%3D%2264%22%20rx%3D%2214%22%20fill%3D%22%230B4F4A%22/%3E%3Ctext%20x%3D%2232%22%20y%3D%2245%22%20font-family%3D%22%27Pretendard%27%2C%27Malgun%20Gothic%27%2Csans-serif%22%20font-size%3D%2226%22%20font-weight%3D%22800%22%20fill%3D%22%23ffffff%22%20text-anchor%3D%22middle%22%3EJIT%3C/text%3E%3C/svg%3E">
+
+<!-- ── 고팡 공통 인증 (subsystem-auth) ── -->
+<!-- K-JIT는 조달 계획·보상 이력을 PDV에 실제 guid로 기록해야 하므로
+     klaw/webapp.html과 동일하게 필수(data-required 속성 없음 = 기본값 true)로 둔다. -->
+<script type="module" src="https://hondi.net/auth/subsystem-auth.js"></script>
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<style>
+:root {
+  --gov:    #06231F; --nav: #0B4F4A;
+  --pri:    #0F8F7E; --pri-lt: #16B39D; --pri-bg: #E4F5F2; --pri-bd: #A9DED4;
+  --sur:    #FFFFFF; --bg: #F2F5FA; --bdr: #D1D9E6;
+  --txt:    #1A202C; --sub: #4A5568; --hint: #718096;
+  --grn:    #1B6B3A; --gbg: #E6F4EC; --gbd: #A3D9B8;
+  --red:    #C01C28; --rbg: #FEE2E2;
+  --org:    #C05621; --obg: #FEF3E2;
+  --font: 'Pretendard', -apple-system, 'Apple SD Gothic Neo', sans-serif;
+  --r: 10px;
+  --sh: 0 1px 3px rgba(0,0,0,.07), 0 1px 2px rgba(0,0,0,.05);
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;overflow:hidden}
+body{position:fixed;inset:0;margin:0;padding:0;font-family:var(--font);font-size:15px;color:var(--txt);background:var(--bg);-webkit-font-smoothing:antialiased;display:flex;flex-direction:column;overflow:hidden}
+a{text-decoration:none;color:inherit}
+button{font-family:var(--font)}
+@keyframes spin{to{transform:rotate(360deg)}}
+.spinner{width:14px;height:14px;border:2px solid rgba(15,143,126,.2);border-top-color:var(--pri);border-radius:50%;animation:spin .7s linear infinite;flex-shrink:0}
+
+header.appbar{background:var(--nav);color:#fff;display:flex;align-items:center;gap:10px;padding:10px 16px;flex-shrink:0;box-shadow:0 2px 8px rgba(0,0,0,.18);z-index:10}
+.appbar-logo{width:28px;height:28px;background:var(--pri-lt);border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:900;color:#06231F;flex-shrink:0}
+.appbar-title{font-size:14.5px;font-weight:800;flex:1}
+.appbar-balance{font-size:12px;color:rgba(255,255,255,.75);display:flex;align-items:center;gap:5px}
+.appbar-back{font-size:12px;color:rgba(255,255,255,.75);padding:5px 10px;border-radius:6px}
+.appbar-back:hover{background:rgba(255,255,255,.1)}
+
+.notice{background:var(--obg);border-bottom:1px solid #F0C98A;color:#7A4B0E;font-size:12px;padding:8px 16px;line-height:1.6;flex-shrink:0}
+
+main.chat{flex:1;overflow-y:auto;padding:18px 16px 12px;display:flex;flex-direction:column;gap:12px}
+.msg{max-width:640px;padding:11px 14px;border-radius:var(--r);font-size:13.5px;line-height:1.7;white-space:pre-wrap}
+.msg.ai{background:var(--sur);border:1px solid var(--bdr);box-shadow:var(--sh);align-self:flex-start}
+.msg.user{background:var(--pri);color:#fff;align-self:flex-end}
+.msg.sys{background:var(--gbg);border:1px solid var(--gbd);color:var(--grn);align-self:center;font-size:12px;padding:6px 12px}
+.msg.err{background:var(--rbg);border:1px solid #F1B4B9;color:var(--red);align-self:flex-start}
+
+.composer{flex-shrink:0;border-top:1px solid var(--bdr);background:var(--sur);padding:10px 12px;display:flex;gap:8px;align-items:flex-end}
+.composer textarea{flex:1;resize:none;border:1px solid var(--bdr);border-radius:var(--r);padding:10px 12px;font-family:var(--font);font-size:13.5px;max-height:120px;min-height:40px}
+.composer textarea:focus{outline:none;border-color:var(--pri-lt)}
+.composer button{background:var(--pri);color:#fff;border:none;border-radius:var(--r);padding:0 18px;height:40px;font-weight:700;font-size:13px;flex-shrink:0}
+.composer button:disabled{opacity:.5}
+
+/* 로그인 오버레이 (biz/phone-otp 흐름 — klaw/kplan과 동일 패턴) */
+.login-overlay{position:fixed;inset:0;background:rgba(6,35,31,.55);display:none;align-items:center;justify-content:center;z-index:500;padding:20px}
+.login-overlay.show{display:flex}
+.login-card{background:var(--sur);border-radius:14px;padding:26px 24px;width:100%;max-width:340px;box-shadow:0 20px 50px rgba(0,0,0,.25)}
+.login-card h3{font-size:15px;font-weight:800;margin-bottom:6px}
+.login-card p{font-size:12.5px;color:var(--sub);line-height:1.6;margin-bottom:16px}
+.login-card input{width:100%;border:1px solid var(--bdr);border-radius:8px;padding:10px 12px;font-size:14px;margin-bottom:10px}
+.login-card button{width:100%;background:var(--pri);color:#fff;border:none;border-radius:8px;padding:10px;font-weight:700;font-size:13.5px}
+.login-card button:disabled{opacity:.5}
+.login-msg{font-size:12px;margin-top:8px;min-height:16px}
+.login-msg.err{color:var(--red)}
+.login-msg.ok{color:var(--grn)}
+</style>
+</head>
+<body>
+
+<header class="appbar">
+  <div class="appbar-logo">JIT</div>
+  <div class="appbar-title">K-JIT 조달 계획</div>
+  <div class="appbar-balance" id="balance-chip">잔액 확인 중…</div>
+  <a class="appbar-back" href="./">← 소개</a>
+</header>
+
+<div class="notice">
+  이 화면은 초안(v0.1) 단계입니다. 로그인·잔액 조회는 정상 동작하지만, 실제 AI 조달 계획 산출은 hondi-proxy의 <code>/kjit/relay</code> 라우팅이 연결된 뒤부터 동작합니다. 자세한 내용은 <a href="./" style="text-decoration:underline">소개 페이지 "정직한 한계"</a>를 참고하세요.
+</div>
+
+<main class="chat" id="chat">
+  <div class="msg ai">안녕하세요, K-JIT입니다. 조달하려는 물자·인원·서비스와 필요한 양·시점·위치·긴급도를 알려주시면, 사회 전체 관점에서 최적인 조달 계획을 세워드립니다.</div>
+</main>
+
+<div class="composer">
+  <textarea id="input" placeholder="예: 다음 주 화요일까지 한림읍 공사현장에 철근 5톤이 필요합니다" rows="1"></textarea>
+  <button id="send-btn">전송</button>
+</div>
+
+<div class="login-overlay" id="login-overlay">
+  <div class="login-card">
+    <div id="login-step-phone">
+      <h3>휴대폰 인증</h3>
+      <p>혼디 계정(고팡)에 등록된 번호로 인증합니다. 조달 계획·보상 이력을 사용자 기준으로 기록하기 위해 필요합니다.</p>
+      <input id="login-phone" type="tel" placeholder="010-0000-0000">
+      <button id="login-send-btn">인증번호 받기</button>
+    </div>
+    <div id="login-step-code" style="display:none">
+      <h3>인증번호 입력</h3>
+      <p>문자로 받은 6자리 인증번호를 입력해 주세요.</p>
+      <input id="login-code" type="text" inputmode="numeric" placeholder="123456">
+      <button id="login-verify-btn">확인</button>
+    </div>
+    <div class="login-msg" id="login-msg"></div>
+  </div>
+</div>
+
+<script>
+const PROXY = 'https://hondi-proxy.tensor-city.workers.dev';
+const KJIT_RELAY_URL = PROXY + '/kjit/relay'; // hondi-proxy(worker.js)에 아직 등록되지 않음 — 등록 전까지 404
+
+const _qs = new URLSearchParams(location.search);
+const GWP_TOKEN = _qs.get('token') || '';
+
+let jitUser = null;
+let phoneVerifyToken = '';
+let phoneVerifyTokenExp = 0;
+let pendingE164 = '';
+let loginWaiters = [];
+
+function _guid() { return jitUser?.ipv6 || GWP_TOKEN || 'anonymous'; }
+function _hasValidLogin() { return !!phoneVerifyToken && Date.now() < phoneVerifyTokenExp; }
+
+// ── 고팡 공통 인증 콜백 (subsystem-auth.js가 인증 완료 후 호출) ──
+window._onGopangAuth = async function (user) {
+  jitUser = user;
+  console.info('[K-JIT Auth] 고팡 인증 완료 — Lv.' + user.level + ' / ' + user.via);
+};
+
+function setLoginMsg(text, cls) {
+  const el = document.getElementById('login-msg');
+  el.textContent = text;
+  el.className = 'login-msg' + (cls ? ' ' + cls : '');
+}
+
+async function sendOtp() {
+  const phone = document.getElementById('login-phone').value.trim();
+  if (!phone) { setLoginMsg('전화번호를 입력해 주세요.', 'err'); return; }
+  const btn = document.getElementById('login-send-btn');
+  btn.disabled = true;
+  setLoginMsg('인증번호 발송 중…', '');
+  try {
+    const res = await fetch(PROXY + '/biz/phone-otp-request', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ e164: phone }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.ok) throw new Error(data.message || '인증번호 발송에 실패했습니다.');
+    pendingE164 = phone;
+    document.getElementById('login-step-phone').style.display = 'none';
+    document.getElementById('login-step-code').style.display = '';
+    document.getElementById('login-code').focus();
+    setLoginMsg('인증번호를 문자로 보내드렸습니다.', 'ok');
+  } catch (e) {
+    setLoginMsg(e.message || '인증번호 발송에 실패했습니다.', 'err');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function verifyOtp() {
+  const code = document.getElementById('login-code').value.trim();
+  if (!code) { setLoginMsg('인증번호를 입력해 주세요.', 'err'); return; }
+  const btn = document.getElementById('login-verify-btn');
+  btn.disabled = true;
+  setLoginMsg('확인 중…', '');
+  try {
+    const res = await fetch(PROXY + '/biz/phone-otp-verify', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ e164: pendingE164, code }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.ok || !data.phone_verify_token) throw new Error(data.message || '인증번호가 일치하지 않습니다.');
+
+    // klaw/webapp.html과 동일한 2단계 확인 — OTP만으로 끝내지 않고
+    // 이 번호로 등록된 고팡 프로필이 실제로 있는지 잔액조회로 재확인한다.
+    const balRes = await fetch(PROXY + '/user/gdc-balance', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone_verify_token: data.phone_verify_token }),
+    });
+    const balData = await balRes.json().catch(() => ({}));
+    if (!balRes.ok || !balData?.ok) {
+      throw new Error(balData?.message || '이 전화번호로 등록된 고팡 계정을 찾을 수 없습니다. 고팡 앱에서 먼저 가입해 주세요.');
+    }
+
+    phoneVerifyToken = data.phone_verify_token;
+    phoneVerifyTokenExp = new Date(data.expires_at).getTime();
+    sessionStorage.setItem('kjit_phone_verify_token', phoneVerifyToken);
+    sessionStorage.setItem('kjit_phone_verify_token_exp', String(phoneVerifyTokenExp));
+    updateBalanceChip(balData);
+
+    document.getElementById('login-overlay').classList.remove('show');
+    setLoginMsg('', '');
+    const waiters = loginWaiters; loginWaiters = [];
+    waiters.forEach((resolve) => resolve());
+  } catch (e) {
+    setLoginMsg(e.message || '인증번호가 일치하지 않습니다.', 'err');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function ensureLogin() {
+  const cachedToken = sessionStorage.getItem('kjit_phone_verify_token');
+  const cachedExp = Number(sessionStorage.getItem('kjit_phone_verify_token_exp') || 0);
+  if (cachedToken && Date.now() < cachedExp) {
+    phoneVerifyToken = cachedToken;
+    phoneVerifyTokenExp = cachedExp;
+  }
+  if (_hasValidLogin()) return Promise.resolve();
+  return new Promise((resolve) => {
+    loginWaiters.push(resolve);
+    document.getElementById('login-overlay').classList.add('show');
+  });
+}
+
+function updateBalanceChip(balData) {
+  const chip = document.getElementById('balance-chip');
+  if (balData?.balance_gdc != null) {
+    chip.textContent = `GDC ${Number(balData.balance_gdc).toLocaleString()}`;
+  } else {
+    chip.textContent = '';
+  }
+}
+
+function addMsg(text, cls) {
+  const chat = document.getElementById('chat');
+  const div = document.createElement('div');
+  div.className = 'msg ' + cls;
+  div.textContent = text;
+  chat.appendChild(div);
+  chat.scrollTop = chat.scrollHeight;
+  return div;
+}
+
+async function callKjitRelay(userText) {
+  const resp = await fetch(KJIT_RELAY_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      guid: _guid(),
+      phone_verify_token: phoneVerifyToken,
+      messages: [{ role: 'user', content: userText }],
+      max_tokens: 1200,
+    }),
+  });
+  if (!resp.ok) {
+    let detail = '';
+    try { detail = (await resp.json()).message || ''; } catch (e) {}
+    throw new Error(detail || `백엔드 응답 실패(HTTP ${resp.status}) — /kjit/relay가 아직 hondi-proxy에 등록되지 않았을 수 있습니다.`);
+  }
+  return resp.json();
+}
+
+async function handleSend() {
+  const input = document.getElementById('input');
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = '';
+  addMsg(text, 'user');
+
+  await ensureLogin();
+
+  const thinking = addMsg('계획을 계산하는 중…', 'sys');
+  try {
+    const data = await callKjitRelay(text);
+    thinking.remove();
+    addMsg(data?.reply || data?.message || '(응답이 비어 있습니다)', 'ai');
+  } catch (e) {
+    thinking.remove();
+    addMsg(e.message || '요청 처리 중 오류가 발생했습니다.', 'err');
+  }
+}
+
+document.getElementById('send-btn').addEventListener('click', handleSend);
+document.getElementById('input').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
+});
+document.getElementById('login-send-btn').addEventListener('click', sendOtp);
+document.getElementById('login-verify-btn').addEventListener('click', verifyOtp);
+</script>
+</body>
+</html>
